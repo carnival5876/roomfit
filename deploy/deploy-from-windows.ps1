@@ -29,7 +29,7 @@ Write-Host "`n▶ 프로젝트 압축" -ForegroundColor Cyan
 $tgz = Join-Path $env:TEMP "roomfit-deploy.tgz"
 if (Test-Path $tgz) { Remove-Item $tgz }
 Push-Location $root
-tar -czf $tgz --exclude=node_modules --exclude=.next --exclude=demo/dist --exclude=deploy/server.txt --exclude=data .
+tar -czf $tgz --exclude=node_modules --exclude=.next --exclude=demo/dist --exclude=deploy/server.txt --exclude=data --exclude=android --exclude=ios --exclude=assets --exclude=mobile/www --exclude=.git .
 Pop-Location
 if ($LASTEXITCODE -ne 0) { throw "압축 실패" }
 
