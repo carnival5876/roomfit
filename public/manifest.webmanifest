@@ -1,0 +1,16 @@
+{
+  "name": "Roomfit",
+  "short_name": "Roomfit",
+  "description": "실제 치수로 내 방에 가구를 놓아 보세요",
+  "lang": "ko",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#efece6",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
