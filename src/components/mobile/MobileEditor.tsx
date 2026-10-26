@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SceneCanvas } from "@/components/three/SceneCanvas";
-import { NumberField } from "@/components/editor/NumberField";
+import { AddRoomForm, RoomList, StructurePanel } from "@/components/editor/StructurePanel";
 import { Sheet } from "./Sheet";
-import { ROOM_LIMITS, useEditor } from "@/store/editorStore";
+import { useEditor } from "@/store/editorStore";
 import { CATALOG, CATEGORY_LABEL, getProduct } from "@/lib/catalog";
 import { computeWarnings, degToRad, radToDeg, toCm } from "@/lib/geometry";
 import type { Product, ProductCategory } from "@/lib/types";
@@ -18,17 +18,26 @@ const priceLabel = (p: Product) =>
       ? won(p.price)
       : `${won(p.price)} (예시)`;
 
-type SheetKind = null | "catalog" | "list" | "room";
+type SheetKind = null | "catalog" | "list" | "room" | "addRoom";
 
 /** 휴대폰 화면: 3D가 화면을 채우고, 목록·설정은 아래 시트로 연다. */
 export default function MobileEditor({ account }: { account?: AccountInfo }) {
   const s = useEditor();
-  const { room, items, selectedId } = s;
+  const { rooms, items, selectedId } = s;
+  const structure = s.mode === "structure";
   const [sheet, setSheet] = useState<SheetKind>(null);
   const [cat, setCat] = useState<ProductCategory | "all">("all");
   const [editingName, setEditingName] = useState(false);
 
-  const warnings = useMemo(() => computeWarnings(room, items, getProduct), [room, items]);
+  // 아래 패널이 가리는 높이를 카메라에 알려 준다 (구조 편집 패널은 더 높다)
+  useEffect(() => {
+    const set = () => useEditor.getState().setBottomInset(structure ? Math.round(window.innerHeight * 0.4) : 90);
+    set();
+    window.addEventListener("resize", set);
+    return () => window.removeEventListener("resize", set);
+  }, [structure]);
+
+  const warnings = useMemo(() => computeWarnings(rooms, items, getProduct), [rooms, items]);
   const selected = items.find((it) => it.id === selectedId) ?? null;
   const product = selected ? getProduct(selected.productId) : undefined;
   const selWarnings = selected ? (warnings[selected.id] ?? []) : [];
@@ -102,6 +111,23 @@ export default function MobileEditor({ account }: { account?: AccountInfo }) {
 
         <div
           className="absolute top-3 flex rounded-full bg-white/95 p-0.5 text-[13px] shadow-md"
+          style={{ left: "max(12px, env(safe-area-inset-left, 0px))" }}
+        >
+          {(["furniture", "structure"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => s.setMode(m)}
+              className={`rounded-full px-3.5 py-1.5 font-medium ${
+                s.mode === m ? "bg-[#2f6fed] text-white" : "text-neutral-600"
+              }`}
+            >
+              {m === "furniture" ? "가구" : "집 구조"}
+            </button>
+          ))}
+        </div>
+
+        <div
+          className="absolute top-3 flex rounded-full bg-white/95 p-0.5 text-[13px] shadow-md"
           style={{ right: "max(12px, env(safe-area-inset-right, 0px))" }}
         >
           {(["3d", "top"] as const).map((m) => (
@@ -117,7 +143,7 @@ export default function MobileEditor({ account }: { account?: AccountInfo }) {
           ))}
         </div>
 
-        {items.length === 0 && (
+        {items.length === 0 && !structure && (
           <div className="pointer-events-none absolute inset-x-0 top-16 flex justify-center px-6">
             <div className="rounded-2xl bg-white/95 px-4 py-3 text-center text-sm leading-relaxed text-neutral-600 shadow">
               아래 <b className="text-neutral-900">가구 추가</b>를 눌러 시작하세요.
@@ -136,7 +162,36 @@ export default function MobileEditor({ account }: { account?: AccountInfo }) {
             paddingRight: "max(12px, env(safe-area-inset-right, 0px))",
           }}
         >
-          {selected && product ? (
+          {structure ? (
+            s.structSel || s.structError ? (
+              <div className="relative max-h-[40dvh] overflow-y-auto overscroll-contain pb-1 pt-3">
+                <button
+                  onClick={() => s.selectStruct(null)}
+                  className="absolute right-0 top-1 flex h-9 w-9 items-center justify-center rounded-full text-xl text-neutral-500 active:bg-neutral-100"
+                  aria-label="선택 해제"
+                >
+                  ×
+                </button>
+                <StructurePanel />
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 pt-2.5">
+                <button
+                  onClick={() => setSheet("room")}
+                  className="flex min-w-0 flex-1 flex-col items-start rounded-xl px-2 py-1 text-left active:bg-neutral-100"
+                >
+                  <span className="text-[11px] text-neutral-500">방 {rooms.length}개 · 방·벽·꼭짓점을 눌러 편집</span>
+                  <span className="truncate text-sm font-semibold">방 목록 보기</span>
+                </button>
+                <button
+                  onClick={() => setSheet("addRoom")}
+                  className="h-12 shrink-0 rounded-xl bg-neutral-900 px-5 text-[15px] font-semibold text-white active:scale-95"
+                >
+                  + 방 추가
+                </button>
+              </div>
+            )
+          ) : selected && product ? (
             <div className="flex flex-col gap-2.5 pt-3">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
@@ -278,27 +333,23 @@ export default function MobileEditor({ account }: { account?: AccountInfo }) {
         )}
       </Sheet>
 
-      {/* 방 설정·계정 */}
-      <Sheet open={sheet === "room"} title="방 설정" onClose={() => setSheet(null)}>
-        <div className="grid grid-cols-3 gap-2">
-          <NumberField
-            label="가로" unit="cm" value={toCm(room.width)}
-            min={ROOM_LIMITS.min * 100} max={ROOM_LIMITS.max * 100}
-            onCommit={(v) => s.setRoom({ width: v / 100 })}
-          />
-          <NumberField
-            label="세로" unit="cm" value={toCm(room.depth)}
-            min={ROOM_LIMITS.min * 100} max={ROOM_LIMITS.max * 100}
-            onCommit={(v) => s.setRoom({ depth: v / 100 })}
-          />
-          <NumberField
-            label="천장" unit="cm" value={toCm(room.height)}
-            min={ROOM_LIMITS.minHeight * 100} max={ROOM_LIMITS.maxHeight * 100}
-            onCommit={(v) => s.setRoom({ height: v / 100 })}
-          />
+      {/* 방 추가 */}
+      <Sheet open={sheet === "addRoom"} title="방 추가" onClose={() => setSheet(null)}>
+        <AddRoomForm onDone={() => setSheet(null)} />
+      </Sheet>
+
+      {/* 방 목록·계정 */}
+      <Sheet open={sheet === "room"} title="방 목록·설정" onClose={() => setSheet(null)}>
+        <div
+          onClick={() => {
+            if (useEditor.getState().mode !== "structure") useEditor.getState().setMode("structure");
+            setSheet(null);
+          }}
+        >
+          <RoomList />
         </div>
-        <p className="mt-2 text-xs text-neutral-500">
-          면적 {(room.width * room.depth).toFixed(2)}㎡ · 약 {((room.width * room.depth) / 3.3058).toFixed(1)}평
+        <p className="mt-3 text-xs leading-relaxed text-neutral-500">
+          방 모양·크기, 문·창문은 왼쪽 위 <b className="text-neutral-800">집 구조</b>에서 바꿀 수 있어요.
         </p>
 
         {account && (

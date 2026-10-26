@@ -102,7 +102,8 @@ function SignedIn({ session, onLoggedOut }: { session: Session; onLoggedOut: () 
   // 장면·이름이 바뀌면 저장 예약. 드래그 중에는 놓을 때까지 기다린다.
   useEffect(() => {
     return useEditor.subscribe((s, prev) => {
-      const changed = s.room !== prev.room || s.items !== prev.items || s.projectName !== prev.projectName;
+      const changed =
+        s.rooms !== prev.rooms || s.openings !== prev.openings || s.items !== prev.items || s.projectName !== prev.projectName;
       const dropped = prev.isDragging && !s.isDragging;
       if (!changed && !dropped) return;
       setSave((cur) => (cur === "saving" ? cur : "dirty"));

@@ -4,7 +4,8 @@ import { API_BASE, IS_APP, tokenStore } from "./platform";
 // 웹과 앱이 함께 쓰는 API 클라이언트
 
 export type User = { id: string; email: string; displayName: string };
-export type Project = { id: string; name: string; scene: SceneData; updatedAt: string };
+/** scene: 서버에 저장된 그대로 (예전 형식일 수 있어 불러올 때 변환) */
+export type Project = { id: string; name: string; scene: unknown; updatedAt: string };
 export type Session = { user: User; project: Project };
 
 export class ApiError extends Error {
@@ -49,7 +50,7 @@ export const api = {
   me: () => call<Session>("GET", "/api/me"),
   login: async (email: string, password: string) =>
     keep(await call<Session & { token?: string }>("POST", "/api/auth/login", { email, password })),
-  signup: async (p: { email: string; password: string; displayName: string; importScene?: SceneData; importName?: string }) =>
+  signup: async (p: { email: string; password: string; displayName: string; importScene?: unknown; importName?: string }) =>
     keep(await call<Session & { token?: string }>("POST", "/api/auth/signup", p)),
   logout: async () => {
     try {

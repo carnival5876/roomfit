@@ -53,11 +53,14 @@ export function FurnitureItem({
   product,
   selected,
   warnings,
+  interactive = true,
 }: {
   item: PlacedItem;
   product: Product;
   selected: boolean;
   warnings: Warning[];
+  /** 구조 편집 중에는 가구를 누를 수 없게 한다 */
+  interactive?: boolean;
 }) {
   const model = useNormalizedModel(product);
   const controls = useThree((s) => s.controls) as unknown as Controls;
@@ -121,17 +124,21 @@ export function FurnitureItem({
       rotation={[0, item.rotation.y, 0]}
     >
       <group
-        onPointerDown={begin("move")}
-        onPointerMove={onMove}
-        onPointerUp={end}
-        onPointerCancel={end}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          document.body.style.cursor = "grab";
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = "";
-        }}
+        {...(interactive
+          ? {
+              onPointerDown: begin("move"),
+              onPointerMove: onMove,
+              onPointerUp: end,
+              onPointerCancel: end,
+              onPointerOver: (e: ThreeEvent<PointerEvent>) => {
+                e.stopPropagation();
+                document.body.style.cursor = "grab";
+              },
+              onPointerOut: () => {
+                document.body.style.cursor = "";
+              },
+            }
+          : {})}
       >
         <primitive object={model} />
       </group>

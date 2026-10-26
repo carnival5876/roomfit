@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { api, ApiError, type Session } from "@/lib/api";
 import { GUEST_STORAGE_KEY } from "@/store/editorStore";
-import type { SceneData } from "@/lib/types";
+import type { SceneDataV1 } from "@/lib/types";
 
 /** 이전 버전(비로그인)에서 이 브라우저에 저장된 방. 가입할 때 계정으로 옮긴다. */
-function readGuestScene(): { name: string; scene: SceneData } | null {
+function readGuestScene(): { name: string; scene: SceneDataV1 } | null {
   try {
     const raw = localStorage.getItem(GUEST_STORAGE_KEY);
     if (!raw) return null;

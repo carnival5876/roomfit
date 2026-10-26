@@ -3,7 +3,8 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { SceneCanvas } from "@/components/three/SceneCanvas";
 import { NumberField } from "./NumberField";
-import { ROOM_LIMITS, useEditor } from "@/store/editorStore";
+import { useEditor } from "@/store/editorStore";
+import { AddRoomForm, RoomList, StructurePanel } from "./StructurePanel";
 import { CATALOG, CATEGORY_LABEL, getProduct } from "@/lib/catalog";
 import { computeWarnings, degToRad, radToDeg, toCm } from "@/lib/geometry";
 import type { Product } from "@/lib/types";
@@ -17,9 +18,10 @@ function priceLabel(p: Product) {
 
 export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}) {
   const s = useEditor();
-  const { room, items, selectedId } = s;
+  const { rooms, items, selectedId } = s;
+  const structure = s.mode === "structure";
 
-  const warnings = useMemo(() => computeWarnings(room, items, getProduct), [room, items]);
+  const warnings = useMemo(() => computeWarnings(rooms, items, getProduct), [rooms, items]);
   const selected = items.find((it) => it.id === selectedId) ?? null;
   const selectedProduct = selected ? getProduct(selected.productId) : undefined;
   const warnCount = Object.values(warnings).filter((w) => w.length).length;
@@ -31,6 +33,15 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
       const t = e.target as HTMLElement;
       if (t.tagName === "INPUT" || t.tagName === "TEXTAREA") return;
       const st = useEditor.getState();
+      if (st.mode === "structure") {
+        const sel = st.structSel;
+        if (e.key === "Escape") return st.selectStruct(null);
+        if (e.key === "Delete" || e.key === "Backspace") {
+          if (sel?.kind === "opening") st.removeOpening(sel.id);
+          else if (sel?.kind === "vertex") st.removeVertex(sel.roomId, sel.index);
+        }
+        return;
+      }
       const it = st.items.find((i) => i.id === st.selectedId);
       if (e.key === "Escape") return st.select(null);
       if (!it) return;
@@ -72,6 +83,19 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
           maxLength={60}
         />
         <div className="ml-auto flex shrink-0 rounded-lg bg-neutral-100 p-0.5 text-sm">
+          {(["furniture", "structure"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => s.setMode(m)}
+              className={`rounded-md px-3 py-1 font-medium ${
+                s.mode === m ? "bg-neutral-900 text-white shadow-sm" : "text-neutral-500 hover:text-neutral-900"
+              }`}
+            >
+              {m === "furniture" ? "가구 배치" : "집 구조"}
+            </button>
+          ))}
+        </div>
+        <div className="flex shrink-0 rounded-lg bg-neutral-100 p-0.5 text-sm">
           {(["3d", "top"] as const).map((m) => (
             <button
               key={m}
@@ -90,30 +114,19 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         {/* 왼쪽: 방 설정 + 카탈로그 */}
         <aside className="order-2 flex max-h-[40vh] shrink-0 flex-col overflow-y-auto border-neutral-200 bg-white md:order-1 md:max-h-none md:w-72 md:border-r">
-          <section className="border-b border-neutral-200 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">방 치수</h2>
-            <div className="grid grid-cols-3 gap-2">
-              <NumberField
-                label="가로" unit="cm" value={toCm(room.width)}
-                min={ROOM_LIMITS.min * 100} max={ROOM_LIMITS.max * 100}
-                onCommit={(v) => s.setRoom({ width: v / 100 })}
-              />
-              <NumberField
-                label="세로" unit="cm" value={toCm(room.depth)}
-                min={ROOM_LIMITS.min * 100} max={ROOM_LIMITS.max * 100}
-                onCommit={(v) => s.setRoom({ depth: v / 100 })}
-              />
-              <NumberField
-                label="천장" unit="cm" value={toCm(room.height)}
-                min={ROOM_LIMITS.minHeight * 100} max={ROOM_LIMITS.maxHeight * 100}
-                onCommit={(v) => s.setRoom({ height: v / 100 })}
-              />
-            </div>
-            <p className="mt-2 text-xs text-neutral-500">
-              면적 {(room.width * room.depth).toFixed(2)}㎡ · 약 {((room.width * room.depth) / 3.3058).toFixed(1)}평
-            </p>
-          </section>
-
+          {structure && (
+            <>
+              <section className="border-b border-neutral-200 p-4">
+                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">방 목록</h2>
+                <RoomList />
+              </section>
+              <section className="p-4">
+                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">새 방</h2>
+                <AddRoomForm />
+              </section>
+            </>
+          )}
+          {!structure && (
           <section className="p-4">
             <div className="mb-3 flex items-baseline justify-between">
               <h2 className="text-xs font-semibold uppercase tracking-wide text-neutral-500">가구</h2>
@@ -138,12 +151,13 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
               ))}
             </ul>
           </section>
+          )}
         </aside>
 
         {/* 중앙: 3D 뷰 */}
         <main className="relative order-1 min-h-[45vh] flex-1 md:order-2">
           <SceneCanvas warnings={warnings} />
-          {items.length === 0 && (
+          {items.length === 0 && !structure && (
             <div className="pointer-events-none absolute inset-x-0 top-6 flex justify-center">
               <div className="rounded-full bg-white/90 px-4 py-2 text-sm text-neutral-600 shadow">
                 가구 목록에서 항목을 눌러 방에 추가하세요
@@ -157,7 +171,14 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
         </main>
 
         {/* 오른쪽: 선택된 가구 + 배치 목록 */}
-        <aside className="order-3 flex max-h-[40vh] shrink-0 flex-col overflow-y-auto border-neutral-200 bg-white md:max-h-none md:w-72 md:border-l">
+        <aside className="order-3 flex max-h-[40vh] shrink-0 flex-col overflow-y-auto border-neutral-200 bg-white md:max-h-none md:w-80 md:border-l">
+          {structure ? (
+            <section className="p-4">
+              <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">집 구조</h2>
+              <StructurePanel />
+            </section>
+          ) : (
+          <>
           <section className="border-b border-neutral-200 p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">선택한 가구</h2>
             {selected && selectedProduct ? (
@@ -272,6 +293,8 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
               </div>
             )}
           </section>
+          </>
+          )}
         </aside>
       </div>
     </div>

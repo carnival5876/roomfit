@@ -1,4 +1,5 @@
-import type { PlacedItem, Product, Room, Warning } from "./types";
+import type { PlacedItem, Product, RoomShape, Warning } from "./types";
+import { pointInPolygon, segmentsCross } from "./plan";
 
 type P2 = { x: number; z: number };
 
@@ -45,14 +46,37 @@ export function polygonsOverlap(a: P2[], b: P2[]): boolean {
   return true;
 }
 
+/** 바닥 투영을 가운데 쪽으로 1mm 줄인다 (벽에 딱 붙은 가구를 침범으로 보지 않도록) */
+function shrink(fp: P2[], by = 0.001): P2[] {
+  const cx = fp.reduce((s, p) => s + p.x, 0) / fp.length;
+  const cz = fp.reduce((s, p) => s + p.z, 0) / fp.length;
+  return fp.map((p) => {
+    const dx = p.x - cx, dz = p.z - cz;
+    const L = Math.hypot(dx, dz) || 1;
+    return { x: p.x - (dx / L) * by, z: p.z - (dz / L) * by };
+  });
+}
+
+/** 가구 바닥 투영이 방 안에 온전히 들어가는지 (꺾인 방·대각선 벽 포함) */
+function fitsInRoom(fp: P2[], room: RoomShape) {
+  const pts = room.points;
+  if (!fp.every((c) => pointInPolygon(c, pts))) return false;
+  // ㄱ자 안쪽 모서리처럼 벽이 가구 안으로 파고드는 경우
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    for (let j = 0; j < fp.length; j++) if (segmentsCross(a, b, fp[j], fp[(j + 1) % fp.length])) return false;
+    if (pointInPolygon(a, fp)) return false;
+  }
+  return true;
+}
+
 /** 배치된 모든 가구의 경고 계산. 배치를 막지 않고 경고만 반환한다. */
 export function computeWarnings(
-  room: Room,
+  rooms: RoomShape[],
   items: PlacedItem[],
   getProduct: (id: string) => Product | undefined,
 ): Record<string, Warning[]> {
   const result: Record<string, Warning[]> = {};
-  const hw = room.width / 2, hd = room.depth / 2;
   const fps = items.map((it) => {
     const p = getProduct(it.productId);
     return p ? { it, p, fp: footprint(it, p) } : null;
@@ -62,15 +86,13 @@ export function computeWarnings(
     if (!e) continue;
     const w: Warning[] = [];
     const { it, p, fp } = e;
-    const centerInside =
-      Math.abs(it.position.x) <= hw && Math.abs(it.position.z) <= hd;
-    const cornerOut = fp.some(
-      (c) => Math.abs(c.x) > hw + EPS || Math.abs(c.z) > hd + EPS,
-    );
-    if (!centerInside) w.push({ kind: "outside", message: "방 바깥에 놓여 있습니다" });
-    else if (cornerOut) w.push({ kind: "wall", message: "벽을 침범합니다" });
-    if (p.height * it.scale.y > room.height + EPS)
-      w.push({ kind: "too_tall", message: "천장보다 높습니다" });
+    const center = { x: it.position.x, z: it.position.z };
+    const room = rooms.find((r) => pointInPolygon(center, r.points));
+    if (!room) w.push({ kind: "outside", message: "방 바깥에 놓여 있습니다" });
+    else {
+      if (!fitsInRoom(shrink(fp), room)) w.push({ kind: "wall", message: "벽을 침범합니다" });
+      if (p.height * it.scale.y > room.height + EPS) w.push({ kind: "too_tall", message: "천장보다 높습니다" });
+    }
     result[it.id] = w;
   }
 
