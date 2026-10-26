@@ -1,0 +1,85 @@
+# GitHub 에 올리면 안드로이드 앱(APK)을 자동으로 만듭니다.
+# 결과물: 저장소 오른쪽의 Releases 에서 roomfit.apk 다운로드 (빌드마다 "빌드 N")
+# 서버 주소를 바꾸려면: Settings → Secrets and variables → Actions → Variables 에 ROOMFIT_API_URL 추가
+name: build-app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'mobile/**'
+      - 'android/**'
+      - 'public/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.ts'
+      - '.github/workflows/build-app.yml'
+  workflow_dispatch:
+    inputs:
+      ios:
+        description: '아이폰 빌드 확인도 실행 (macOS, 서명 없음)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  TAG: build-${{ github.run_number }}
+  GH_TOKEN: ${{ github.token }}
+  ROOMFIT_API_URL: ${{ vars.ROOMFIT_API_URL }}
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: check
+        run: |
+          npx tsc --noEmit 2>&1 | tee build.log; test ${PIPESTATUS[0]} -eq 0
+          npm run check:geometry 2>&1 | tee -a build.log; test ${PIPESTATUS[0]} -eq 0
+      - name: build app screens
+        run: node mobile/build.mjs && npx cap sync android
+      - name: build apk
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon 2>&1 | tee ../build.log; exit ${PIPESTATUS[0]}
+      - name: report error
+        if: failure()
+        run: |
+          msg=$(grep -E "error|Error|ERROR|FAILURE|What went wrong|FAIL" build.log | grep -v "^\s*$" | tail -60 | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')
+          echo "::error title=android::${msg}"
+      - name: release
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk roomfit.apk
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "빌드 ${{ github.run_number }}" \
+            --notes "안드로이드: roomfit.apk (휴대폰에서 받아 설치)" || true
+          gh release upload "$TAG" roomfit.apk --repo "$GITHUB_REPOSITORY" --clobber
+
+  ios:
+    # 아이폰은 애플 개발자 계정으로 서명해야 설치할 수 있어서, 지금은 빌드가 되는지만 확인한다 (수동 실행)
+    if: github.event_name == 'workflow_dispatch' && inputs.ios
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node mobile/build.mjs && npx cap sync ios
+      - name: build (simulator, no signing)
+        run: |
+          xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build | tail -30
