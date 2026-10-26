@@ -341,44 +341,101 @@ export function roomBesideEdge(e: Edge, depth: number, T = WALL_THICKNESS): Vec2
   return normalizePolygon([a, b, add(b, mul(e.n, depth)), add(a, mul(e.n, depth))]);
 }
 
+export type SnapGuide = { a: Vec2; b: Vec2 };
+
+type SnapCand = {
+  corr: Vec2; // 이동량 보정
+  d: number; // 보정 크기 (작을수록 우선)
+  dir: Vec2; // 보정 방향 (같은 방향은 한 번만 적용)
+  guide: (finalDelta: Vec2) => SnapGuide; // 맞춘 뒤 보여 줄 안내선
+};
+
+/** f 의 직선(offset 만큼 바깥) 위에서 f 와 e 를 모두 덮는 구간 */
+function lineGuide(f: Edge, offset: number, e: Edge, d: Vec2): SnapGuide {
+  const base = add(f.a, mul(f.n, offset));
+  const ts = [0, f.length, dot(sub(add(e.a, d), f.a), f.u), dot(sub(add(e.b, d), f.a), f.u)];
+  const lo = Math.min(...ts) - 0.3, hi = Math.max(...ts) + 0.3;
+  return { a: add(base, mul(f.u, lo)), b: add(base, mul(f.u, hi)) };
+}
+
 /**
- * 방을 옮길 때 다른 방에 붙도록 이동량을 보정한다.
- * 움직이는 방의 벽이 다른 방 바깥면 근처(tol 안)에 오면 정확히 붙인다. x·z 축 방향 각각 한 번.
+ * 방을 옮길 때 다른 방에 맞춰 이동량을 보정한다 (자석처럼).
+ * - 마주 보는 벽: 벽 두께만큼 띄워 정확히 붙임
+ * - 같은 방향 벽: 일직선으로 맞춤 (예: 두 방의 윗벽 라인)
+ * - 모서리: 다른 방 꼭짓점과 가로·세로 위치 맞춤
+ * 서로 다른 두 방향까지 적용하고, 맞춘 위치를 안내선으로 돌려준다.
  */
-export function snapRoomMove(moving: RoomShape, others: RoomShape[], delta: Vec2, tol = 0.15, T = WALL_THICKNESS): Vec2 {
+export function snapRoomMove(
+  moving: RoomShape,
+  others: RoomShape[],
+  delta: Vec2,
+  tol = 0.2,
+  T = WALL_THICKNESS,
+): { delta: Vec2; guides: SnapGuide[] } {
   const moved: RoomShape = { ...moving, points: moving.points.map((p) => add(p, delta)) };
   const me = roomEdges(moved, 0, T);
   const oe = others.flatMap((r, i) => roomEdges(r, i + 1, T));
-  let best: { corr: Vec2; d: number; dir: Vec2 }[] = [];
+  const cands: SnapCand[] = [];
+
   for (const e of me) {
     for (const f of oe) {
-      if (dot(e.u, f.u) > -0.999) continue;
-      const s = dot(sub(e.a, f.a), f.n) - T; // 붙으려면 0 이어야 함
-      if (Math.abs(s) > tol) continue;
-      // 벽이 실제로 마주 보는지 (구간이 겹치는지)
-      const t0 = dot(sub(f.a, e.a), e.u), t1 = dot(sub(f.b, e.a), e.u);
-      if (Math.min(e.length, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1)) < -tol) continue;
-      best.push({ corr: mul(f.n, -s), d: Math.abs(s), dir: f.n });
+      const c = dot(e.u, f.u);
+      if (c < -0.999) {
+        // 마주 보는 벽 → 붙이기
+        const s = dot(sub(e.a, f.a), f.n) - T;
+        if (Math.abs(s) > tol) continue;
+        const t0 = dot(sub(f.a, e.a), e.u), t1 = dot(sub(f.b, e.a), e.u);
+        if (Math.min(e.length, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1)) < -tol) continue;
+        const corr = mul(f.n, -s);
+        cands.push({ corr, d: Math.abs(s), dir: f.n, guide: (fd) => lineGuide(f, T, e, sub(fd, delta)) });
+      } else if (c > 0.999) {
+        // 같은 방향 벽 → 일직선 맞추기 (가까운 벽만)
+        const s = dot(sub(e.a, f.a), f.n);
+        if (Math.abs(s) > tol) continue;
+        const corr = mul(f.n, -s);
+        cands.push({ corr, d: Math.abs(s) + 0.005, dir: f.n, guide: (fd) => lineGuide(f, 0, e, sub(fd, delta)) });
+      }
     }
   }
-  best = best.sort((p, q) => p.d - q.d);
-  let out = delta;
-  const used: Vec2[] = [];
-  for (const c of best) {
-    if (used.some((u) => Math.abs(cross(u, c.dir)) < 0.1)) continue; // 같은 방향은 한 번만
-    out = add(out, c.corr);
-    used.push(c.dir);
-    if (used.length >= 2) break;
+  // 꼭짓점 가로·세로 맞추기. 벽 맞추기가 있는 방향에서는 쓰지 않도록 순위를 크게 낮춘다
+  // (벽끼리 붙어야 할 때 꼭짓점을 맞추면 벽이 겹친다)
+  const otherPts = others.flatMap((r) => r.points);
+  for (const p of moved.points) {
+    for (const q of otherPts) {
+      const dx = q.x - p.x, dz = q.z - p.z;
+      if (Math.abs(dx) <= tol)
+        cands.push({ corr: { x: dx, z: 0 }, d: Math.abs(dx) + 1, dir: { x: 1, z: 0 },
+          guide: (fd) => ({ a: q, b: add(p, sub(fd, delta)) }) });
+      if (Math.abs(dz) <= tol)
+        cands.push({ corr: { x: 0, z: dz }, d: Math.abs(dz) + 1, dir: { x: 0, z: 1 },
+          guide: (fd) => ({ a: q, b: add(p, sub(fd, delta)) }) });
+    }
   }
-  return { x: round2(out.x), z: round2(out.z) };
+
+  cands.sort((p, q) => p.d - q.d);
+  let out = delta;
+  const chosen: SnapCand[] = [];
+  for (const c of cands) {
+    if (chosen.some((u) => Math.abs(cross(u.dir, c.dir)) < 0.1)) continue; // 같은 방향은 한 번만
+    out = add(out, c.corr);
+    chosen.push(c);
+    if (chosen.length >= 2) break;
+  }
+  const final = { x: round2(out.x), z: round2(out.z) };
+  return { delta: final, guides: chosen.map((c) => c.guide(final)) };
 }
 
-/** 꼭짓점을 옮길 때: 1cm 단위 + 이웃 꼭짓점과 가로·세로 줄맞춤 */
-export function snapVertex(p: Vec2, prev: Vec2, next: Vec2, tol = 0.08): Vec2 {
+/** 꼭짓점을 옮길 때: 1cm 단위 + 이웃 꼭짓점, 다른 방 꼭짓점과 가로·세로 줄맞춤 */
+export function snapVertex(p: Vec2, prev: Vec2, next: Vec2, tol = 0.08, others: Vec2[] = []): Vec2 {
   let { x, z } = p;
+  let bx = tol, bz = tol;
   for (const q of [prev, next]) {
-    if (Math.abs(x - q.x) < tol) x = q.x;
-    if (Math.abs(z - q.z) < tol) z = q.z;
+    if (Math.abs(p.x - q.x) < bx) { x = q.x; bx = Math.abs(p.x - q.x); }
+    if (Math.abs(p.z - q.z) < bz) { z = q.z; bz = Math.abs(p.z - q.z); }
+  }
+  for (const q of others) {
+    if (Math.abs(p.x - q.x) < bx) { x = q.x; bx = Math.abs(p.x - q.x); }
+    if (Math.abs(p.z - q.z) < bz) { z = q.z; bz = Math.abs(p.z - q.z); }
   }
   return { x: round2(x), z: round2(z) };
 }

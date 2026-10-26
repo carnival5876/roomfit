@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "models": "node scripts/generate-models.mjs",
     "build:demo": "node demo/build.mjs",
-    "check:geometry": "tsc scripts/geometry-check.ts --outDir .check --module commonjs --target es2020 --skipLibCheck && node .check/scripts/geometry-check.js"
+    "check:geometry": "esbuild scripts/geometry-check.ts --bundle --platform=node --format=cjs --alias:@=./src --log-level=warning --outfile=.check/geometry-check.js && node .check/geometry-check.js"
   },
   "dependencies": {
     "@capacitor/android": "^7.6.9",

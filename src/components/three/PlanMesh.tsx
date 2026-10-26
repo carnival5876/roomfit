@@ -194,7 +194,7 @@ function Floor({ room }: { room: RoomShape }) {
   const selected = !!sel && "roomId" in sel && sel.roomId === room.id;
   const applied = useRef({ x: 0, z: 0 });
 
-  // 구조 편집: 바닥을 끌어 방 전체를 옮긴다 (다른 방 벽에 가까우면 붙는다)
+  // 구조 편집: 바닥을 끌어 방 전체를 옮긴다 (다른 방 벽·모서리에 자석처럼 맞춘다)
   const drag = useFloorDrag({
     onStart: () => {
       applied.current = { x: 0, z: 0 };
@@ -207,9 +207,11 @@ function Floor({ room }: { room: RoomShape }) {
       const orig = { ...me, points: me.points.map((p) => ({ x: p.x - applied.current.x, z: p.z - applied.current.z })) };
       const others = s.rooms.filter((r) => r.id !== room.id);
       const want = snapRoomMove(orig, others, { x: Math.round(d.x * 100) / 100, z: Math.round(d.z * 100) / 100 });
-      s.moveRoom(room.id, { x: want.x - applied.current.x, z: want.z - applied.current.z });
-      applied.current = want;
+      s.moveRoom(room.id, { x: want.delta.x - applied.current.x, z: want.delta.z - applied.current.z });
+      s.setSnapGuides(want.guides);
+      applied.current = want.delta;
     },
+    onEnd: () => useEditor.getState().setSnapGuides([]),
   });
 
   return (
@@ -227,6 +229,32 @@ function Floor({ room }: { room: RoomShape }) {
     >
       <meshStandardMaterial color={structure && selected ? "#dfe7f7" : "#e7ddcd"} roughness={0.9} />
     </mesh>
+  );
+}
+
+/** 방을 끄는 동안 맞춘 위치를 보여 주는 파란 선 */
+function SnapGuides() {
+  const guides = useEditor((s) => s.snapGuides);
+  return (
+    <group>
+      {guides.map((g, i) => {
+        const dx = g.b.x - g.a.x, dz = g.b.z - g.a.z;
+        const L = Math.hypot(dx, dz);
+        if (L < 0.01) return null;
+        return (
+          <mesh
+            key={i}
+            position={[(g.a.x + g.b.x) / 2, 3.2, (g.a.z + g.b.z) / 2]}
+            rotation={[0, -Math.atan2(dz, dx), 0]}
+            raycast={noRaycast}
+            renderOrder={10}
+          >
+            <boxGeometry args={[L, 0.01, 0.025]} />
+            <meshBasicMaterial color="#2f6fed" depthTest={false} transparent opacity={0.9} />
+          </mesh>
+        );
+      })}
+    </group>
   );
 }
 
@@ -267,6 +295,7 @@ export function PlanMesh() {
       {placements.map((pl) => (
         <OpeningMesh key={pl.opening.id} pl={pl} />
       ))}
+      <SnapGuides />
     </group>
   );
 }

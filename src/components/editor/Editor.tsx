@@ -40,6 +40,15 @@ export default function Editor({ headerRight }: { headerRight?: ReactNode } = {}
           if (sel?.kind === "opening") st.removeOpening(sel.id);
           else if (sel?.kind === "vertex") st.removeVertex(sel.roomId, sel.index);
         }
+        // 방 선택 중 방향키: 1cm (Shift: 10cm) 이동
+        if (sel?.kind === "room" && e.key.startsWith("Arrow")) {
+          e.preventDefault();
+          const d = e.shiftKey ? 0.1 : 0.01;
+          st.moveRoom(sel.roomId, {
+            x: e.key === "ArrowLeft" ? -d : e.key === "ArrowRight" ? d : 0,
+            z: e.key === "ArrowUp" ? -d : e.key === "ArrowDown" ? d : 0,
+          });
+        }
         return;
       }
       const it = st.items.find((i) => i.id === st.selectedId);

@@ -17,8 +17,11 @@ import {
   mul,
   normalizePolygon,
   rectPoints,
+  pointInPolygon,
   roomBesideEdge,
   round2,
+  snapRoomMove,
+  type SnapGuide,
   selfIntersects,
   signedArea,
   sub,
@@ -75,7 +78,13 @@ type EditorState = {
   addRoom: (preset: RoomPreset) => void;
   addRoomBeside: (roomId: string, edge: number, depth: number) => void;
   updateRoom: (id: string, patch: Partial<Pick<RoomShape, "name" | "height">>) => void;
+  /** 방을 옮긴다. 방 안에 있던 가구도 같이 옮긴다 */
   moveRoom: (id: string, delta: Vec2) => void;
+  /** 가장 가까운 방에 딱 붙이고 벽 라인·모서리를 맞춘다 (1m 이내) */
+  snapRoomToNeighbors: (id: string) => void;
+  /** 방을 끄는 동안 보여 줄 맞춤 안내선 */
+  snapGuides: SnapGuide[];
+  setSnapGuides: (g: SnapGuide[]) => void;
   removeRoom: (id: string) => void;
   /** 끌기 중: 정리하지 않고 꼭짓점만 옮긴다. 놓을 때 commitRoom 을 부른다 */
   setVertex: (roomId: string, index: number, p: Vec2) => void;
@@ -245,11 +254,41 @@ export const useEditor = create<EditorState>()((set, get) => ({
     }),
 
   moveRoom: (id, delta) =>
-    set((s) => ({
-      rooms: s.rooms.map((r) =>
-        r.id === id ? { ...r, points: r.points.map((p) => ({ x: round2(p.x + delta.x), z: round2(p.z + delta.z) })) } : r,
-      ),
-    })),
+    set((s) => {
+      const room = s.rooms.find((r) => r.id === id);
+      if (!room || (Math.abs(delta.x) < 1e-9 && Math.abs(delta.z) < 1e-9)) return {};
+      // 가운데가 이 방 안에 있는 가구는 방과 함께 옮긴다
+      const inside = new Set(
+        s.items.filter((it) => pointInPolygon({ x: it.position.x, z: it.position.z }, room.points)).map((it) => it.id),
+      );
+      return {
+        rooms: s.rooms.map((r) =>
+          r.id === id ? { ...r, points: r.points.map((p) => ({ x: round2(p.x + delta.x), z: round2(p.z + delta.z) })) } : r,
+        ),
+        items: inside.size
+          ? s.items.map((it) =>
+              inside.has(it.id)
+                ? { ...it, position: { ...it.position, x: round2(it.position.x + delta.x), z: round2(it.position.z + delta.z) } }
+                : it,
+            )
+          : s.items,
+      };
+    }),
+
+  snapRoomToNeighbors: (id) => {
+    const s = get();
+    const room = s.rooms.find((r) => r.id === id);
+    const others = s.rooms.filter((r) => r.id !== id);
+    if (!room || !others.length) return set({ structError: "붙일 다른 방이 없어요" });
+    const { delta } = snapRoomMove(room, others, { x: 0, z: 0 }, 1.0);
+    if (Math.abs(delta.x) < 0.005 && Math.abs(delta.z) < 0.005)
+      return set({ structError: "1m 안에 붙일 방이 없어요. 방을 조금 더 가까이 옮겨 주세요" });
+    get().moveRoom(id, delta);
+    set({ structError: null });
+  },
+
+  snapGuides: [],
+  setSnapGuides: (snapGuides) => set({ snapGuides }),
 
   removeRoom: (id) =>
     set((s) => {

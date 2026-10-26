@@ -8,6 +8,7 @@ import {
   signedArea, snapRoomMove,
 } from "../src/lib/plan";
 import type { Opening, PlacedItem, RoomShape, Warning } from "../src/lib/types";
+import { useEditor } from "../src/store/editorStore";
 
 let fail = 0;
 const check = (name: string, ok: boolean, info = "") => {
@@ -96,8 +97,21 @@ check("창문 양옆 벽 길이 = 4 - 1.2", near(widthSum, 2.8), String(widthSum
 
 // ---------- 방 이동 스냅 ----------
 const C = room("C", rectPoints(4 + T + 0.08, 0.5, 3, 2)); // 8cm 떨어짐
-const snapped = snapRoomMove(C, [A], { x: 0, z: 0 });
+const snapped = snapRoomMove(C, [A], { x: 0, z: 0 }).delta;
 check("가까이 가져가면 벽 두께 간격으로 붙음", near(snapped.x, -0.08), JSON.stringify(snapped));
+const C2 = room("C2", rectPoints(4 + T + 0.05, 0.12, 3, 2)); // 5cm 떨어지고 12cm 어긋남
+const al2 = snapRoomMove(C2, [A], { x: 0, z: 0 });
+check("붙이기 + 윗벽 일직선 (두 방향)", near(al2.delta.x, -0.05) && near(al2.delta.z, -0.12) && al2.guides.length === 2, JSON.stringify(al2));
+// 옆 방 벽을 2cm 파고든 상태 → 모서리가 아니라 벽 두께만큼 띄워 붙어야 함
+const C3 = room("C3", rectPoints(4 + 0.02, 0, 3, 3));
+const al3 = snapRoomMove(C3, [A], { x: 0, z: 0 }, 1.0);
+check("벽을 파고든 방은 벽 두께만큼 밀어 붙임", near(al3.delta.x, T - 0.02) && near(al3.delta.z, 0), JSON.stringify(al3.delta));
+// A 아래에 놓은 방: 아래로는 벽 두께만큼 띄워 붙이고, 가로는 A 모서리(x=4)에 맞춤
+const C4 = room("C4", rectPoints(4 + T, 3.3, 2, 2));
+const al4 = snapRoomMove(C4, [A], { x: 0, z: 0 }, 0.2);
+check("아래로 붙이고 모서리 줄맞춤", near(al4.delta.z, -(0.3 - T)) && near(al4.delta.x, -T), JSON.stringify(al4.delta));
+const far = snapRoomMove(room("F", rectPoints(6, 6, 2, 2)), [A], { x: 0, z: 0 });
+check("멀리 있으면 그대로", near(far.delta.x, 0) && near(far.delta.z, 0) && far.guides.length === 0);
 
 // ---------- 저장 형식 변환 ----------
 const v1 = parseScene({ schemaVersion: 1, room: { width: 4.2, depth: 3.6, height: 2.4 }, items: [mk("a", "test-sofa-3p", 0, 0)] });
@@ -106,5 +120,19 @@ const bad = parseScene({ schemaVersion: 2, rooms: [room("x", [{ x: 0, z: 0 }, { 
 check("꼬인 방은 저장 거부", !bad.ok);
 const clamp = parseScene({ schemaVersion: 2, rooms: [A], openings: [{ ...win, offset: 99, width: 9 }], items: [] });
 check("벽보다 큰 창문은 벽 안으로 맞춤", clamp.ok && clamp.scene.openings[0].width <= 3.9 && clamp.scene.openings[0].offset < 4);
+
+// ---------- 방을 옮기면 안의 가구도 같이 ----------
+const st = useEditor.getState();
+st.loadScene("t", {
+  schemaVersion: 2,
+  rooms: [A, B],
+  openings: [],
+  items: [mk("inA", "test-chair", 2, 1.5), mk("inB", "test-chair", 2, 5)],
+});
+useEditor.getState().moveRoom("A", { x: -1, z: 0.5 });
+const after = useEditor.getState().items;
+const pa = after.find((i) => i.id === "inA")!.position, pb = after.find((i) => i.id === "inB")!.position;
+check("방 A 를 옮기면 A 안 가구도 이동", near(pa.x, 1) && near(pa.z, 2));
+check("다른 방 가구는 그대로", near(pb.x, 2) && near(pb.z, 5));
 
 process.exit(fail ? 1 : 0);

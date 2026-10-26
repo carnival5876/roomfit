@@ -50,10 +50,15 @@ function Vertex({ room, index }: { room: RoomShape; index: number }) {
       const r = s.rooms.find((x) => x.id === room.id);
       if (!r) return;
       const n = r.points.length;
+      // 이웃 꼭짓점 + 다른 방(벽 바깥면 포함) 꼭짓점과 줄맞춤
+      const others = s.rooms.filter((x) => x.id !== room.id).flatMap((x) => x.points);
+      const own = r.points.filter((_, i) => i !== index);
       const q = snapVertex(
         { x: start.current.x + d.x, z: start.current.z + d.z },
         r.points[(index - 1 + n) % n],
         r.points[(index + 1) % n],
+        0.1,
+        [...own, ...others],
       );
       s.setVertex(room.id, index, q);
     },
@@ -65,11 +70,11 @@ function Vertex({ room, index }: { room: RoomShape; index: number }) {
   return (
     <ScreenSized px={1} position={[p.x, 0.02, p.z]}>
       {/* 보이는 점 */}
-      <mesh rotation-x={-Math.PI / 2} raycast={() => null}>
+      <mesh rotation-x={-Math.PI / 2} raycast={() => null} renderOrder={21}>
         <circleGeometry args={[selected ? 9 : 7, 24]} />
         <meshBasicMaterial color={selected ? "#2f6fed" : "#ffffff"} depthTest={false} />
       </mesh>
-      <mesh rotation-x={-Math.PI / 2} position-y={-0.001} raycast={() => null}>
+      <mesh rotation-x={-Math.PI / 2} position-y={-0.001} raycast={() => null} renderOrder={20}>
         <circleGeometry args={[selected ? 11 : 9, 24]} />
         <meshBasicMaterial color="#2f6fed" depthTest={false} />
       </mesh>
@@ -98,7 +103,7 @@ export function StructureHandles() {
     <group>
       {edges.map((e) => {
         const mid = add(e.a, mul(e.u, e.length / 2));
-        const label = add(mid, mul(e.n, -0.28)); // 방 안쪽에 길이 표시
+        const label = add(mid, mul(e.n, -0.45)); // 방 안쪽에 길이 표시 (⊕ 버튼과 겹치지 않게)
         const wallSel = sel.kind === "wall" && sel.edge === e.index;
         return (
           <group key={e.index}>
@@ -127,15 +132,15 @@ export function StructureHandles() {
                   <circleGeometry args={[16, 16]} />
                   <meshBasicMaterial transparent opacity={0} depthWrite={false} />
                 </mesh>
-                <mesh rotation-x={-Math.PI / 2} raycast={() => null}>
+                <mesh rotation-x={-Math.PI / 2} raycast={() => null} renderOrder={20}>
                   <ringGeometry args={[5, 7, 20]} />
                   <meshBasicMaterial color="#2f6fed" depthTest={false} transparent opacity={0.8} />
                 </mesh>
-                <mesh rotation-x={-Math.PI / 2} raycast={() => null}>
+                <mesh rotation-x={-Math.PI / 2} raycast={() => null} renderOrder={20}>
                   <planeGeometry args={[6, 1.6]} />
                   <meshBasicMaterial color="#2f6fed" depthTest={false} />
                 </mesh>
-                <mesh rotation-x={-Math.PI / 2} rotation-z={Math.PI / 2} raycast={() => null}>
+                <mesh rotation-x={-Math.PI / 2} rotation-z={Math.PI / 2} raycast={() => null} renderOrder={20}>
                   <planeGeometry args={[6, 1.6]} />
                   <meshBasicMaterial color="#2f6fed" depthTest={false} />
                 </mesh>

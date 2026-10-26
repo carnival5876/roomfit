@@ -260,12 +260,76 @@ export function StructurePanel({ onAddRoom }: { onAddRoom?: () => void }) {
           <span className="tabular-nums">약 {(area(room.points) / 3.3058).toFixed(1)}평 · 벽 {room.points.length}개</span>
         </div>
       </div>
+      <RoomMover roomId={room.id} />
       <p className="text-[11px] leading-relaxed text-neutral-500">
-        벽을 누르면 길이를 바꾸거나 문·창문을 달 수 있어요. 바닥을 끌면 방이 통째로 움직여요.
+        바닥을 끌면 방이 안의 가구와 함께 움직이고, 옆 방 벽·모서리 근처에서 자석처럼 맞춰져요(파란 선). 벽을 누르면
+        길이를 바꾸거나 문·창문을 달 수 있어요.
       </p>
       <button className={btnRed} onClick={() => s.removeRoom(room.id)} disabled={s.rooms.length <= 1}>
         이 방 삭제
       </button>
+    </div>
+  );
+}
+
+/** 방 위치를 정확히 맞추기: 옆 방에 붙이기, 1cm·10cm 미세 이동, 좌표 입력 */
+function RoomMover({ roomId }: { roomId: string }) {
+  const s = useEditor();
+  const room = s.rooms.find((r) => r.id === roomId);
+  const [step, setStep] = useState(10); // cm
+  if (!room) return null;
+  const minX = Math.min(...room.points.map((p) => p.x));
+  const minZ = Math.min(...room.points.map((p) => p.z));
+  const nudge = (dx: number, dz: number) => s.moveRoom(roomId, { x: (dx * step) / 100, z: (dz * step) / 100 });
+  const arrow = "flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100 text-base active:scale-95 hover:bg-neutral-200";
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg bg-neutral-50 p-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-medium text-neutral-500">위치 맞추기</span>
+        <div className="flex rounded-md bg-white p-0.5 text-[11px] ring-1 ring-neutral-200">
+          {[1, 10].map((v) => (
+            <button
+              key={v}
+              onClick={() => setStep(v)}
+              className={`rounded px-2 py-0.5 font-medium ${step === v ? "bg-neutral-900 text-white" : "text-neutral-500"}`}
+            >
+              {v}cm
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        {/* 방향 버튼 (평면도 기준: 위 = 화면 위쪽) */}
+        <div className="grid shrink-0 grid-cols-3 grid-rows-2 gap-1">
+          <span />
+          <button className={arrow} onClick={() => nudge(0, -1)} aria-label={`위로 ${step}cm`}>↑</button>
+          <span />
+          <button className={arrow} onClick={() => nudge(-1, 0)} aria-label={`왼쪽으로 ${step}cm`}>←</button>
+          <button className={arrow} onClick={() => nudge(0, 1)} aria-label={`아래로 ${step}cm`}>↓</button>
+          <button className={arrow} onClick={() => nudge(1, 0)} aria-label={`오른쪽으로 ${step}cm`}>→</button>
+        </div>
+        {s.rooms.length > 1 && (
+          <button
+            className={`${btnGray} min-w-0 flex-1 !h-auto py-2 leading-tight`}
+            onClick={() => s.snapRoomToNeighbors(roomId)}
+            aria-label="가까운 방에 딱 붙이기"
+          >
+            가까운 방에
+            <br />딱 붙이기
+          </button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        <NumberField
+          label="왼쪽 끝 X" unit="cm" value={cm(minX)}
+          onCommit={(v) => s.moveRoom(roomId, { x: v / 100 - minX, z: 0 })}
+        />
+        <NumberField
+          label="위쪽 끝 Z" unit="cm" value={cm(minZ)}
+          onCommit={(v) => s.moveRoom(roomId, { x: 0, z: v / 100 - minZ })}
+        />
+      </div>
     </div>
   );
 }
